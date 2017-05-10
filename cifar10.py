@@ -75,6 +75,6 @@ else:
 
     model.fit_generator(datagen.flow(X_train, Y_train,  # 3
                                      batch_size=128),
-                        samples_per_epoch=X_train.shape[0],
-                        nb_epoch=12,
+                        steps_per_epoch=X_train.shape[0] / 128,
+                        epochs=12,
                         validation_data=(X_test, Y_test))
