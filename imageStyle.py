@@ -9,12 +9,21 @@ from scipy.optimize import fmin_l_bfgs_b
 
 img_height = 504
 img_width = 315
-img_size = (img_height, img_width, 3)
+
 style_weight = 1.0
 total_variation_weight = 1.0
 # this will contain our generated image
-dream = Input(batch_shape=(1,) + img_size)
-model = vgg16.VGG16(input_tensor=dream, weights='imagenet', include_top=False)
+
+
+result_prefix = 'result.jpg'
+
+img_nrows = 400
+img_ncols = int(img_width * img_nrows / img_height)
+
+content_weight = 0.025
+
+base_image_path = 'dest.jpg'
+style_reference_image_path = 'src.jpg'
 
 
 # 刚那个优化函数的输出是一个向量
@@ -60,18 +69,6 @@ class Evaluator(object):
 
 evaluator = Evaluator()
 
-result_prefix = 'result.jpg'
-target_mask_path = 'src.jpg'
-ref_img = imread(target_mask_path)
-img_nrows, img_ncols = ref_img.shape[:2]
-
-content_img_path = 'dest.jpg'
-use_content_img = content_img_path is not None
-content_weight = 0.1 if use_content_img else 0
-
-base_image_path = 'dest.jpg'
-style_reference_image_path = 'src.jpg'
-
 
 def preprocess_image(image_path):
     # 使用Keras内置函数读入图片，由于网络没有全连阶层，target_size可以随便设。
@@ -106,24 +103,20 @@ base_image = K.variable(preprocess_image(base_image_path))
 style_reference_image = K.variable(preprocess_image(style_reference_image_path))
 
 # 初始化一个待优化图片的占位符，这个地方待会儿实际跑起来的时候要填一张噪声图片进来。
-if K.image_dim_ordering() == 'th':
-    combination_image = K.placeholder((1, 3, img_nrows, img_ncols))
-else:
-    combination_image = K.placeholder((1, img_nrows, img_ncols, 3))
+
+combination_image = K.placeholder((1, img_nrows, img_ncols, 3))
 
 # 将三个张量串联到一起，形成一个形如（3,3,img_nrows,img_ncols）的张量
 input_tensor = K.concatenate([base_image,
                               style_reference_image,
                               combination_image], axis=0)
 
-
+model = vgg16.VGG16(input_tensor=input_tensor, weights='imagenet', include_top=False)
 # 设置Gram矩阵的计算图，首先用batch_flatten将输出的featuremap压扁，然后自己跟自己做乘法，跟我们之前说过的过程一样。注意这里的输入是某一层的representation。
 def gram_matrix(x):
     assert K.ndim(x) == 3
-    if K.image_dim_ordering() == 'th':
-        features = K.batch_flatten(x)
-    else:
-        features = K.batch_flatten(K.permute_dimensions(x, (2, 0, 1)))
+
+    features = K.batch_flatten(K.permute_dimensions(x, (2, 0, 1)))
     gram = K.dot(features, K.transpose(features))
     return gram
 
@@ -148,12 +141,9 @@ def content_loss(base, combination):
 # 施加全变差正则，全变差正则用于使生成的图片更加平滑自然。
 def total_variation_loss(x):
     assert K.ndim(x) == 4
-    if K.image_dim_ordering() == 'th':
-        a = K.square(x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, 1:, :img_ncols - 1])
-        b = K.square(x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, :img_nrows - 1, 1:])
-    else:
-        a = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, 1:, :img_ncols - 1, :])
-        b = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, :img_nrows - 1, 1:, :])
+
+    a = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, 1:, :img_ncols - 1, :])
+    b = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, :img_nrows - 1, 1:, :])
     return K.sum(K.pow(a + b, 1.25))
 
 
@@ -220,5 +210,3 @@ for i in range(10):
     end_time = time.time()
     print('Image saved as', fname)
     print('Iteration %d completed in %ds' % (i, end_time - start_time))
-
-
